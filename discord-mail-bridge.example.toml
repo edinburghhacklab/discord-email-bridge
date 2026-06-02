@@ -1,0 +1,12 @@
+discord_token = ""
+discord_app_id = 0
+debug_fake_last_success_time = "2026-06-01T12:00:00Z"
+
+[[bridges]]
+digest_interval = { secs = 5, nanos = 0 }
+discord_channel_id = 0
+email_to_address = "asdf@asdf.com"
+email_from_address = "asdf@asdf.com"
+smtp_url = "smtp.protonmail.ch"
+smtp_username = "asdf@asdf.com"
+smtp_password = "password"
