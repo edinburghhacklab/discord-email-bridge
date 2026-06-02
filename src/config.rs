@@ -18,7 +18,7 @@ pub fn load() -> &'static Config {
         .merge(Env::prefixed("DMB_"))
         .extract()
         .unwrap();
-    debug!("got config: {:?}", config);
+    debug!("got config: {config:?}");
     CONFIG.set(config).unwrap();
 
     CONFIG.get().unwrap()
@@ -70,6 +70,6 @@ impl std::fmt::Debug for Config {
             .field("discord_token", &"SECRET")
             .field("discord_app_id", &self.discord_app_id)
             .field("bridges", &self.bridges)
-            .finish()
+            .finish_non_exhaustive()
     }
 }

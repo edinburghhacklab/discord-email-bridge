@@ -1,3 +1,6 @@
+#![deny(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(clippy::must_use_candidate, clippy::missing_errors_doc)]
+
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use discordrs::{
@@ -27,7 +30,7 @@ async fn main() -> Result<()> {
 
     // Schedule recurring tasks for Discord -> Email bridging
     let mut futures = FuturesUnordered::new();
-    for bridge in config.bridges.iter() {
+    for bridge in &config.bridges {
         let mut bridger = DiscordToEmailBridger::new(config, bridge).await?;
         futures.push(every::every(bridge.digest_interval, async move || {
             bridger.try_send_digest().await
@@ -54,11 +57,7 @@ struct DiscordToEmailBridger {
 
 impl DiscordToEmailBridger {
     pub async fn new(config: &Config, bridge: &BridgeConfig) -> Result<Self> {
-        let last_successful_digest = if let Some(dt) = config.debug_fake_last_success_time {
-            dt
-        } else {
-            Utc::now() // TODO: persist
-        };
+        let last_successful_digest = config.debug_fake_last_success_time.unwrap_or_else(Utc::now);
 
         let client = DiscordHttpClient::new(&config.discord_token, config.discord_app_id);
 
@@ -67,7 +66,7 @@ impl DiscordToEmailBridger {
             .get_channel(bridge.discord_channel_id.clone())
             .await?;
 
-        Ok(DiscordToEmailBridger {
+        Ok(Self {
             bridge: bridge.clone(),
             discord_client: client,
             last_successful_digest,
@@ -86,7 +85,7 @@ impl DiscordToEmailBridger {
             // generate and send the email
             let email = self.build_digest_email(&messages).await?;
             info!("sending email with {} discord messages", messages.len());
-            debug!("full email: {:?}", email);
+            debug!("full email: {email:?}");
 
             let mailer = AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(&self.bridge.smtp_url)
                 .unwrap()
@@ -183,11 +182,11 @@ impl DiscordToEmailBridger {
                                    self.last_successful_digest.format("%Y-%m-%d %H:%M:%S")
                                );
 
-                               for message in messages.iter() {
+                               for message in messages {
                                    body.push_str(&message.author.as_ref().unwrap().username);
                                    body.push_str(": ");
                                    body.push_str(&message.content);
-                                   for attachment in message.attachments.iter() {
+                                   for attachment in &message.attachments {
                                        body.push_str("<Attachment named '");
                                        body.push_str(&attachment.filename);
                                        body.push('\'');
