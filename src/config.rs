@@ -1,4 +1,4 @@
-use std::{sync::OnceLock, time::Duration};
+use std::{path::PathBuf, sync::OnceLock, time::Duration};
 
 use chrono::{DateTime, Utc};
 use discordrs::Snowflake;
@@ -44,6 +44,7 @@ pub struct Config {
     pub discord_token: String,
     pub discord_app_id: u64,
     pub bridges: Vec<BridgeConfig>,
+    pub state_dir: PathBuf,
 
     pub debug_fake_last_success_time: Option<DateTime<Utc>>,
 }

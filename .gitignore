@@ -2,3 +2,4 @@
 .envrc
 .direnv
 discord-mail-bridge.toml
+data/

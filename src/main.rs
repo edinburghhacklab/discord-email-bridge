@@ -1,6 +1,8 @@
 #![deny(clippy::all, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::must_use_candidate, clippy::missing_errors_doc)]
 
+use std::path::{Path, PathBuf};
+
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use discordrs::{
@@ -14,7 +16,8 @@ use lettre::{
     },
     transport::smtp::authentication::Credentials,
 };
-use log::{debug, info};
+use log::{debug, info, warn};
+use tokio::fs;
 use tokio_stream::StreamExt;
 
 use crate::config::{BridgeConfig, Config};
@@ -38,6 +41,7 @@ async fn main() -> Result<()> {
     }
 
     info!("startup completed");
+
     // Loop until an error is encountered (or we exit due to sigterm)
     // For now, no need to bother with clean shutdown bits
     while let Some(result) = futures.next().await {
@@ -51,13 +55,37 @@ async fn main() -> Result<()> {
 struct DiscordToEmailBridger {
     bridge: BridgeConfig,
     discord_client: RestClient,
-    last_successful_digest: DateTime<Utc>,
     channel_name: String,
+    state_file: PathBuf,
+    last_successful_digest: DateTime<Utc>,
 }
 
 impl DiscordToEmailBridger {
     pub async fn new(config: &Config, bridge: &BridgeConfig) -> Result<Self> {
-        let last_successful_digest = config.debug_fake_last_success_time.unwrap_or_else(Utc::now);
+        let state_file = Self::state_file_path(&config.state_dir, bridge);
+
+        let state_file_modified: Option<DateTime<Utc>> = match fs::metadata(&state_file).await {
+            Ok(metadata) => metadata.modified().ok().map(Into::into),
+            Err(e) => {
+                warn!(
+                    "failed to read metadata file {state_file:?}: {e}. using now as last successful digest instead"
+                );
+                None
+            }
+        };
+
+        let last_successful_digest = config
+            .debug_fake_last_success_time
+            .or(state_file_modified)
+            .unwrap_or_else(Utc::now);
+
+        // Ensure state file exists, and has correct modification time
+        fs::create_dir_all(state_file.parent().unwrap()).await?;
+        fs::File::create(&state_file)
+            .await?
+            .try_into_std() // tokio is missing this api :(
+            .unwrap()
+            .set_modified(last_successful_digest.into())?;
 
         let client = DiscordHttpClient::new(&config.discord_token, config.discord_app_id);
 
@@ -70,6 +98,7 @@ impl DiscordToEmailBridger {
             bridge: bridge.clone(),
             discord_client: client,
             last_successful_digest,
+            state_file,
             channel_name: channel.name.unwrap(),
         })
     }
@@ -100,6 +129,11 @@ impl DiscordToEmailBridger {
         }
 
         self.last_successful_digest = Utc::now();
+        fs::File::create(&self.state_file)
+            .await?
+            .try_into_std() // tokio is missing this api :(
+            .unwrap()
+            .set_modified(self.last_successful_digest.into())?;
         Ok(())
     }
 
@@ -232,5 +266,15 @@ impl DiscordToEmailBridger {
 
         let content = reqwest::get(url).await?.bytes().await?.to_vec();
         Ok(Attachment::new(filename.clone()).body(content, content_type.parse()?))
+    }
+
+    fn state_file_path(state_dir: &Path, bridge: &BridgeConfig) -> PathBuf {
+        let mut pb = state_dir.to_path_buf();
+        pb.push(format!(
+            "{}-to-{}",
+            bridge.discord_channel_id, bridge.email_to_address
+        ));
+
+        pb
     }
 }
