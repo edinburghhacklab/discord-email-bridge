@@ -211,9 +211,10 @@ impl DiscordToEmailBridger {
                        .singlepart(
                            SinglePart::plain({
                                let mut body = format!(
-                                   "This is an automatic email with new messages sent to #{} since {}.\nThe below text is from users of that channel, be cautious about clicking links, etc.\nReplies will currently not be bridged back to Discord.\n\n",
+                                   "This is an automatic email with new messages sent to #{} since {}.\nThe below text is from users of that channel, be cautious about clicking links, etc.\nReplies will currently not be bridged back to Discord.\n{}\n\n",
                                    self.channel_name,
-                                   self.last_successful_digest.format("%Y-%m-%d %H:%M:%S")
+                                   self.last_successful_digest.format("%Y-%m-%d %H:%M:%S"),
+                                   self.bridge.extra_header.as_deref().unwrap_or("")
                                );
 
                                for message in messages {

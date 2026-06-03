@@ -33,6 +33,7 @@ pub struct BridgeConfig {
     pub email_to_address: String,
     pub email_from_name: Option<String>,
     pub email_from_address: String,
+    pub extra_header: Option<String>,
 
     pub smtp_url: String,
     pub smtp_username: String,

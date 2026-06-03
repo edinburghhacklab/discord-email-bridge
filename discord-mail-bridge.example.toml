@@ -8,6 +8,7 @@ digest_interval = { secs = 5, nanos = 0 }
 discord_channel_id = 0
 email_to_address = "asdf@asdf.com"
 email_from_address = "asdf@asdf.com"
+extra_header = "this is a test email!"
 smtp_url = "smtp.protonmail.ch"
 smtp_username = "asdf@asdf.com"
 smtp_password = "password"
