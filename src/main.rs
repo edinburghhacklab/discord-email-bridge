@@ -14,7 +14,10 @@ use lettre::{
     message::{
         Attachment, Mailbox, Message as EmailMessage, MultiPart, SinglePart, header::ContentType,
     },
-    transport::smtp::authentication::Credentials,
+    transport::smtp::{
+        authentication::{Credentials, Mechanism},
+        client::{Tls, TlsParameters},
+    },
 };
 use log::{debug, info, warn};
 use tokio::fs;
@@ -113,13 +116,32 @@ impl DiscordToEmailBridger {
             info!("sending email with {} discord messages", messages.len());
             debug!("full email: {email:?}");
 
-            let mailer = AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(&self.bridge.smtp_url)
-                .unwrap()
-                .credentials(Credentials::new(
-                    self.bridge.smtp_username.clone(),
-                    self.bridge.smtp_password.clone(),
-                ))
-                .build();
+            let mailer = {
+                let mut builder = AsyncSmtpTransport::<lettre::Tokio1Executor>::builder_dangerous(
+                    &self.bridge.smtp_url,
+                );
+                if let Some((username, password)) = self
+                    .bridge
+                    .smtp_username
+                    .clone()
+                    .zip(self.bridge.smtp_password.clone())
+                {
+                    builder = builder
+                        .authentication(vec![Mechanism::Plain])
+                        .credentials(Credentials::new(username, password));
+                }
+
+                if let Some(port) = self.bridge.smtp_port {
+                    builder = builder.port(port);
+                }
+
+                builder.tls(if self.bridge.smtp_insecure {
+                    Tls::None
+                } else {
+                    Tls::Required(TlsParameters::new(self.bridge.smtp_url.clone()).unwrap())
+                })
+            }
+            .build();
 
             mailer.send(email).await?;
             info!("sent successfully");

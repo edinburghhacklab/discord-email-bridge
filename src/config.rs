@@ -26,7 +26,6 @@ pub fn load() -> &'static Config {
 
 #[derive(Deserialize, Clone)]
 pub struct BridgeConfig {
-    pub digest_interval: Duration,
     pub discord_channel_id: Snowflake,
 
     pub email_to_name: Option<String>,
@@ -36,8 +35,15 @@ pub struct BridgeConfig {
     pub extra_header: Option<String>,
 
     pub smtp_url: String,
-    pub smtp_username: String,
-    pub smtp_password: String,
+    pub smtp_port: Option<u16>,
+    #[serde(default = "def_false")]
+    pub smtp_insecure: bool,
+    pub smtp_username: Option<String>,
+    pub smtp_password: Option<String>,
+}
+
+fn def_false() -> bool {
+    false
 }
 
 #[derive(Deserialize)]
@@ -53,7 +59,6 @@ pub struct Config {
 impl std::fmt::Debug for BridgeConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BridgeConfig")
-            .field("digest_interval", &self.digest_interval)
             .field("discord_channel_id", &self.discord_channel_id)
             .field("email_to_name", &self.email_to_name)
             .field("email_to_address", &self.email_to_address)
