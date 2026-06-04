@@ -1,4 +1,5 @@
 /target
+/target_docker
 .envrc
 .direnv
 discord-mail-bridge.toml

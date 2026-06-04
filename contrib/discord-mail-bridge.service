@@ -1,0 +1,14 @@
+[Unit]
+Description=Bridge discord messages to the mailing list
+Requires=network-online.target
+StartLimitInterval=200
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/srv/discord-mail-bridge/discord-mail-bridge
+WorkingDirectory=/srv/discord-mail-bridge
+Environment=RUST_LOG=debug
+User=aria
+Restart=on-failure
+RestartSec=30
