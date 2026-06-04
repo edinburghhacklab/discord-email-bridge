@@ -23,7 +23,6 @@ use tokio_stream::StreamExt;
 use crate::config::{BridgeConfig, Config};
 
 mod config;
-mod every;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -31,20 +30,18 @@ async fn main() -> Result<()> {
     env_logger::init();
     let config = config::load();
 
-    // Schedule recurring tasks for Discord -> Email bridging
-    let mut futures = FuturesUnordered::new();
+    // Race all of the bridging tasks
+    let mut bridges = Vec::with_capacity(config.bridges.len());
     for bridge in &config.bridges {
-        let mut bridger = DiscordToEmailBridger::new(config, bridge).await?;
-        futures.push(every::every(bridge.digest_interval, async move || {
-            bridger.try_send_digest().await
-        }));
+        bridges.push(DiscordToEmailBridger::new(config, bridge).await?);
     }
 
-    info!("startup completed");
-
-    // Loop until an error is encountered (or we exit due to sigterm)
-    // For now, no need to bother with clean shutdown bits
-    while let Some(result) = futures.next().await {
+    // Race all tasks until they finish, exiting on first error
+    let mut all = bridges
+        .iter_mut()
+        .map(DiscordToEmailBridger::try_send_digest)
+        .collect::<FuturesUnordered<_>>();
+    while let Some(result) = all.next().await {
         result?;
     }
 
