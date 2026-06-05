@@ -12,7 +12,8 @@ use futures_util::stream::FuturesUnordered;
 use lettre::{
     AsyncSmtpTransport, AsyncTransport,
     message::{
-        Attachment, Mailbox, Message as EmailMessage, MultiPart, SinglePart, header::ContentType,
+        Attachment, Mailbox, Message as EmailMessage, MultiPart, SinglePart,
+        header::{ContentType, Header, MessageId},
     },
     transport::smtp::{
         authentication::{Credentials, Mechanism},
@@ -20,7 +21,10 @@ use lettre::{
     },
 };
 use log::{debug, info, warn};
-use tokio::fs;
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 use tokio_stream::StreamExt;
 
 use crate::config::{BridgeConfig, Config};
@@ -58,6 +62,7 @@ struct DiscordToEmailBridger {
     channel_name: String,
     state_file: PathBuf,
     last_successful_digest: DateTime<Utc>,
+    last_message_id: Option<MessageId>,
 }
 
 impl DiscordToEmailBridger {
@@ -68,7 +73,8 @@ impl DiscordToEmailBridger {
             Ok(metadata) => metadata.modified().ok().map(Into::into),
             Err(e) => {
                 warn!(
-                    "failed to read metadata file {state_file:?}: {e}. using now as last successful digest instead"
+                    "failed to read metadata file {}: {e}. using now as last successful digest instead",
+                    state_file.display()
                 );
                 None
             }
@@ -81,8 +87,26 @@ impl DiscordToEmailBridger {
 
         // Ensure state file exists, and has correct modification time
         fs::create_dir_all(state_file.parent().unwrap()).await?;
-        fs::File::create(&state_file)
-            .await?
+        let mut opened_state_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&state_file)
+            .await?;
+
+        let last_message_id = {
+            let mut buf = vec![];
+            if opened_state_file.read_to_end(&mut buf).await.is_ok() {
+                String::from_utf8(buf)
+                    .ok()
+                    .and_then(|s| MessageId::parse(&s).ok())
+            } else {
+                None
+            }
+        };
+
+        opened_state_file
             .try_into_std() // tokio is missing this api :(
             .unwrap()
             .set_modified(last_successful_digest.into())?;
@@ -100,6 +124,7 @@ impl DiscordToEmailBridger {
             last_successful_digest,
             state_file,
             channel_name: channel.name.unwrap(),
+            last_message_id,
         })
     }
 
@@ -110,11 +135,14 @@ impl DiscordToEmailBridger {
         let messages = self.get_new_messages().await?;
         debug!("found {:?} messages", messages.len());
 
-        if !messages.is_empty() {
+        let new_message_id = if messages.is_empty() {
+            None
+        } else {
             // generate and send the email
             let email = self.build_digest_email(&messages).await?;
             info!("sending email with {} discord messages", messages.len());
             debug!("full email: {email:?}");
+            let this_message_id = email.headers().get::<MessageId>().unwrap();
 
             let mailer = {
                 let mut builder = AsyncSmtpTransport::<lettre::Tokio1Executor>::builder_dangerous(
@@ -144,15 +172,25 @@ impl DiscordToEmailBridger {
             .build();
 
             mailer.send(email).await?;
+
             info!("sent successfully");
-        }
+
+            Some(this_message_id)
+        };
 
         self.last_successful_digest = Utc::now();
-        fs::File::create(&self.state_file)
-            .await?
+        let mut state_file = fs::File::create(&self.state_file).await?;
+
+        if let Some(msg_id) = new_message_id {
+            state_file.write_all(msg_id.as_ref().as_bytes()).await?;
+            state_file.flush().await?;
+        }
+
+        state_file
             .try_into_std() // tokio is missing this api :(
             .unwrap()
             .set_modified(self.last_successful_digest.into())?;
+
         Ok(())
     }
 
@@ -209,7 +247,7 @@ impl DiscordToEmailBridger {
 
     async fn build_digest_email(&self, messages: &[DiscordMessage]) -> Result<EmailMessage> {
         const MAX_ATTACHMENT_SIZE_BYTES: u64 = 5 * 1024 * 1024; // 5 MiB
-        EmailMessage::builder()
+        let mut builder = EmailMessage::builder()
             .from(Mailbox::new(
                 self.bridge.email_from_name.clone(),
                 self.bridge.email_from_address.parse().unwrap(),
@@ -224,7 +262,15 @@ impl DiscordToEmailBridger {
                 if messages.len() > 1 { "s" } else { "" },
                 self.channel_name
             ))
-            .header(ContentType::TEXT_PLAIN)
+            .message_id(None);
+
+        if let Some(last) = self.last_message_id.clone() {
+            builder = builder
+                .in_reply_to(last.as_ref().to_string())
+                .references(last.as_ref().to_string());
+        }
+
+        builder.header(ContentType::TEXT_PLAIN)
             .multipart(async {
                 let mut parts = MultiPart::mixed()
                        .singlepart(

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::OnceLock, time::Duration};
+use std::{path::PathBuf, sync::OnceLock};
 
 use chrono::{DateTime, Utc};
 use discordrs::Snowflake;
@@ -42,7 +42,7 @@ pub struct BridgeConfig {
     pub smtp_password: Option<String>,
 }
 
-fn def_false() -> bool {
+const fn def_false() -> bool {
     false
 }
 
@@ -67,6 +67,9 @@ impl std::fmt::Debug for BridgeConfig {
             .field("smtp_url", &self.smtp_url)
             .field("smtp_username", &self.smtp_username)
             .field("smtp_password", &"SECRET")
+            .field("smtp_insecure", &self.smtp_insecure)
+            .field("smtp_port", &self.smtp_port)
+            .field("extra_header", &self.extra_header)
             .finish()
     }
 }
